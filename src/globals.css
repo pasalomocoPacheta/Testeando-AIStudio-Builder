@@ -1,0 +1,207 @@
+/* 
+  BELUGA GLOBAL THEME
+  -------------------
+  This file is dynamically served by server.ts.
+  Values marked with [TOKEN] are replaced at runtime with data from Builder.io.
+  
+  Understandable and maintainable by humans.
+*/
+
+@font-face {
+  font-family: 'Belfast Grotesk';
+  src: url('https://cdn.builder.io/api/v1/assets/f450ca45929045f782ca4fdfb394abb9/belfastgrotesk');
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'TTRamillas';
+  src: url('https://cdn.builder.io/api/v1/assets/f450ca45929045f782ca4fdfb394abb9/ramillas');
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}
+
+:root {
+  /* Typography */
+  --beluga-font-heading: '[FONT_HEADING_FAMILY]', [FONT_HEADING_FALLBACK];
+  --beluga-font-body: '[FONT_BODY_FAMILY]', [FONT_BODY_FALLBACK];
+
+  /* Brand Colors */
+  --beluga-color-primary: [COLOR_PRIMARY];
+  --beluga-color-secondary: [COLOR_SECONDARY];
+  --beluga-color-accent: [COLOR_ACCENT];
+  --beluga-color-info: [COLOR_INFO];
+  --beluga-color-muted: [COLOR_MUTED];
+  --beluga-color-surface: [COLOR_SURFACE];
+
+  /* UI States */
+  --beluga-disabled-text: [COLOR_DISABLED_TEXT];
+  --beluga-disabled-bg: [COLOR_DISABLED_BG];
+
+  /* Spacing & Radius */
+  --beluga-radius-button: [RADIUS_BUTTON];
+  --beluga-radius-input: [RADIUS_INPUT];
+
+  /* Transitions */
+  --beluga-transition-fast: [TRANSITION_FAST];
+
+  /* Typography Sizes & Weights */
+  --beluga-h1-size: [H1_FONT_SIZE];
+  --beluga-h1-weight: [H1_WEIGHT];
+  --beluga-h1-line-height: [H1_LINE_HEIGHT];
+  
+  --beluga-h2-size: [H2_FONT_SIZE];
+  --beluga-h2-weight: [H2_WEIGHT];
+  --beluga-h2-line-height: [H2_LINE_HEIGHT];
+  
+  --beluga-h3-size: [H3_FONT_SIZE];
+  --beluga-h3-weight: [H3_WEIGHT];
+  --beluga-h3-line-height: [H3_LINE_HEIGHT];
+
+  --beluga-body-size: [BODY_FONT_SIZE];
+  --beluga-body-weight: [BODY_FONT_WEIGHT];
+  --beluga-body-line-height: [BODY_LINE_HEIGHT];
+
+  /* Color Palette */
+  --beluga-violet: [PALETTE_VIOLET];
+  --beluga-rose: [PALETTE_ROSE];
+  --beluga-blush: [PALETTE_BLUSH];
+  --beluga-peach: [PALETTE_PEACH];
+  --beluga-magenta: [PALETTE_MAGENTA];
+  --beluga-purple: [PALETTE_PURPLE];
+  --beluga-indigo: [PALETTE_INDIGO];
+  --beluga-coral: [PALETTE_CORAL];
+  --beluga-pink: [PALETTE_PINK];
+  --beluga-blue: [PALETTE_BLUE];
+  --beluga-hubspot-yellow: [PALETTE_HUBSPOT_YELLOW];
+
+  /* Additional Typography */
+  --beluga-paragraph-font-size: [PARAGRAPH_FONT_SIZE];
+  --beluga-paragraph-line-height: [PARAGRAPH_LINE_HEIGHT];
+  --beluga-small-font-size: [SMALL_FONT_SIZE];
+  --beluga-small-line-height: [SMALL_LINE_HEIGHT];
+  --beluga-label-color: [LABEL_COLOR];
+}
+
+/* Prose Overrides */
+p, small, strong {
+   font-family: var(--beluga-font-body);
+}
+.prose {
+  font-family: var(--beluga-font-body);
+}
+
+/* Base Styles */
+body::after {
+  content: "Theme Loaded";
+  display: none;
+}
+
+body {
+  color: [BODY_TEXT_COLOR];
+  font-family: var(--beluga-font-body);
+  font-size: var(--beluga-body-size);
+  line-height: var(--beluga-body-line-height);
+  font-weight: var(--beluga-body-weight);
+}
+
+body h1,
+.prose h1 {
+  font-family: var(--beluga-font-heading);
+  font-size: var(--beluga-h1-size);
+  line-height: var(--beluga-h1-line-height);
+  font-weight: var(--beluga-h1-weight);
+  text-transform: uppercase;
+}
+
+body h2,
+.prose h2 {
+  font-family: var(--beluga-font-heading);
+  font-size: var(--beluga-h2-size);
+  line-height: var(--beluga-h2-line-height);
+  font-weight: var(--beluga-h2-weight);   
+  text-transform: uppercase;
+}
+
+body h3,
+.prose h3 {
+  font-family: var(--beluga-font-heading);
+  font-size: var(--beluga-h3-size);
+  line-height: var(--beluga-h3-line-height);
+  font-weight: var(--beluga-h3-weight);
+  text-transform: uppercase;
+}
+
+body h4,
+.prose h4 {
+  font-size: [H4_FONT_SIZE];
+  line-height: [H4_LINE_HEIGHT];
+  font-weight: [H4_WEIGHT];
+  text-transform: uppercase;
+}
+
+body h5,
+.prose h5 {
+  font-size: [H5_FONT_SIZE];
+  line-height: [H5_LINE_HEIGHT];
+  font-weight: [H5_WEIGHT];
+  text-transform: uppercase;
+}
+
+body h6,
+.prose h6 {
+  font-size: [H6_FONT_SIZE];
+  line-height: [H6_LINE_HEIGHT];
+  font-weight: [H6_WEIGHT];
+}
+
+a {
+  color: [LINK_COLOR];
+  text-decoration: [LINK_DECORATION];
+  transition: var(--beluga-transition-fast);
+}
+
+a:hover {
+  color: [LINK_HOVER_COLOR];
+}
+
+button,
+.button,
+[role="button"] {
+  font-family: '[BUTTON_FONT_FAMILY]', [FONT_BODY_FALLBACK];
+  font-weight: [BUTTON_FONT_WEIGHT];
+  background: [BUTTON_BACKGROUND];
+  color: [BUTTON_TEXT_COLOR];
+  border: [BUTTON_BORDER];
+  border-radius: var(--beluga-radius-button);
+  padding: [BUTTON_PADDING_TOP] [BUTTON_PADDING_RIGHT] [BUTTON_PADDING_BOTTOM] [BUTTON_PADDING_LEFT];
+  transition: var(--beluga-transition-fast);
+  cursor: pointer;
+}
+
+input,
+textarea,
+select {
+  border-radius: var(--beluga-radius-input);
+  padding: 8px 12px;
+}
+
+input {
+  color: [INPUT_TEXT_COLOR];
+  border: [INPUT_BORDER];
+  background: [INPUT_BACKGROUND];
+}
+
+textarea {
+  color: [TEXTAREA_TEXT_COLOR];
+  border: [TEXTAREA_BORDER];
+  background: [TEXTAREA_BACKGROUND];
+}
+
+select {
+  color: [SELECT_TEXT_COLOR];
+  border: [SELECT_BORDER];
+  background: [SELECT_BACKGROUND];
+}

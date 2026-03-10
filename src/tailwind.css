@@ -1,0 +1,25 @@
+@import "tailwindcss";
+
+@theme {
+  --color-primary: var(--beluga-color-primary);
+  --color-secondary: var(--beluga-color-secondary);
+  --color-accent: var(--beluga-color-accent);
+  --color-muted: var(--beluga-color-muted);
+  --color-surface: var(--beluga-color-surface);
+  
+  --font-heading: var(--beluga-font-heading);
+  --font-body: var(--beluga-font-body);
+  
+  --font-size-h1: var(--beluga-h1-size);
+  --font-size-h2: var(--beluga-h2-size);
+  --font-size-h3: var(--beluga-h3-size);
+  --font-size-body: var(--beluga-body-size);
+
+  --font-weight-h1: var(--beluga-h1-weight);
+  --font-weight-h2: var(--beluga-h2-weight);
+  --font-weight-h3: var(--beluga-h3-weight);
+  --font-weight-body: var(--beluga-body-weight);
+  
+  --radius-button: var(--beluga-radius-button);
+  --radius-input: var(--beluga-radius-input);
+}
