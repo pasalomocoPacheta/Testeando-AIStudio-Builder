@@ -3,7 +3,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 const APPS_SCRIPT_URL =
   "https://script.google.com/macros/s/AKfycbzVisTqPz3PFf84Cbdz42rcaAPG7An9WlimR57dAIS6NJX7GvipXOvLpk5HUW420jGm/exec";
 
-const RECAPTCHA_SITE_KEY = "PUT_YOUR_RECAPTCHA_V3_SITE_KEY_HERE";
+const RECAPTCHA_SITE_KEY = "6LcvwrgsAAAAABZ663yUOiMEB6bqyAD4KYQOBrb4";
 const RECAPTCHA_ACTION = "submit_contact_form";
 const BACKEND_TIMEOUT_MS = 30000;
 
