@@ -47,7 +47,7 @@ type BackendMessage = {
 const APPS_SCRIPT_URL =
   "https://script.google.com/macros/s/AKfycbzViR2BMtubvPV8slAJz9E5rLjOyJz8_iKB19wFJhCrMIcRYfMsHVLT4APferiKu4mX/exec";
 
-const RECAPTCHA_SITE_KEY = "REPLACE_WITH_YOUR_RECAPTCHA_V3_SITE_KEY";
+const RECAPTCHA_SITE_KEY = "6LcvwrgsAAAAABZ663yUOiMEB6bqyAD4KYQOBrb4";
 const RECAPTCHA_ACTION = "submit_contact_form";
 const CHALLENGE_CALLBACK_NAME = "__belugaChallengeCallback";
 
