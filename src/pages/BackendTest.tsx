@@ -3,7 +3,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 const APPS_SCRIPT_URL =
   "https://script.google.com/macros/s/AKfycbzVisTqPz3PFf84Cbdz42rcaAPG7An9WlimR57dAIS6NJX7GvipXOvLpk5HUW420jGm/exec";
 
-const RECAPTCHA_SITE_KEY = "6LcvwrgsAAAAABZ663yUOiMEB6bqyAD4KYQOBrb4";
+const RECAPTCHA_SITE_KEY = "PUT_YOUR_RECAPTCHA_V3_SITE_KEY_HERE";
 const RECAPTCHA_ACTION = "submit_contact_form";
 const BACKEND_TIMEOUT_MS = 30000;
 
@@ -25,9 +25,13 @@ declare global {
   }
 }
 
+const ALLOWED_BACKEND_MESSAGE_ORIGINS = new Set([
+  "https://script.google.com",
+  "https://script.googleusercontent.com"
+]);
+
 export default function BackendTest(): JSX.Element {
   const formRef = useRef<HTMLFormElement | null>(null);
-  const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const submitTimerRef = useRef<number | null>(null);
 
   const [email, setEmail] = useState("");
@@ -57,9 +61,7 @@ export default function BackendTest(): JSX.Element {
   const [timezone, setTimezone] = useState(
     () => (typeof Intl !== "undefined" ? Intl.DateTimeFormat().resolvedOptions().timeZone : "")
   );
-  const [tzOffset, setTzOffset] = useState(
-    () => String(new Date().getTimezoneOffset())
-  );
+  const [tzOffset, setTzOffset] = useState(() => String(new Date().getTimezoneOffset()));
   const [page, setPage] = useState(
     () => (typeof location !== "undefined" ? location.href : "")
   );
@@ -340,8 +342,7 @@ export default function BackendTest(): JSX.Element {
     });
 
     const onMessage = (event: MessageEvent<BackendPayload>) => {
-      const expectedOrigin = new URL(APPS_SCRIPT_URL).origin;
-      if (event.origin !== expectedOrigin) {
+      if (!ALLOWED_BACKEND_MESSAGE_ORIGINS.has(event.origin)) {
         return;
       }
 
@@ -352,8 +353,7 @@ export default function BackendTest(): JSX.Element {
 
       clearSubmitTimeout();
       setIsSubmitting(false);
-
-      log("Backend response:", data);
+      log("Backend response:", { origin: event.origin, data });
 
       if (data.ok) {
         setStatus("ok", data.message || "Form submitted successfully");
@@ -597,7 +597,6 @@ export default function BackendTest(): JSX.Element {
         </form>
 
         <iframe
-          ref={iframeRef}
           id="submitFrame"
           name="submitFrame"
           title="hidden submit frame"
