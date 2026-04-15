@@ -1,59 +1,23 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-type ChallengeResponse = {
-  ok: true;
-  token: string;
-  nonce: string;
-  ts: number;
-  difficulty: number;
-  expiresIn: number;
-};
-
-type PowResult = {
-  uaHash: string;
-  powNonce: string;
-  powHash: string;
-};
-
-type HiddenFieldRefs = {
-  loadTimestamp: HTMLInputElement | null;
-  submittedAt: HTMLInputElement | null;
-  challengeToken: HTMLInputElement | null;
-  challengeTs: HTMLInputElement | null;
-  powNonce: HTMLInputElement | null;
-  powHash: HTMLInputElement | null;
-  uaHash: HTMLInputElement | null;
-  formFingerprint: HTMLInputElement | null;
-  formSeal: HTMLInputElement | null;
-  userAgent: HTMLInputElement | null;
-  language: HTMLInputElement | null;
-  screen: HTMLInputElement | null;
-  timezone: HTMLInputElement | null;
-  tzOffset: HTMLInputElement | null;
-  page: HTMLInputElement | null;
-  origin: HTMLInputElement | null;
-  recaptchaToken: HTMLInputElement | null;
-};
-
-type BackendMessage = {
-  source?: string;
-  ok?: boolean;
-  code?: string;
-  message?: string;
-  requestId?: string;
-  debug?: unknown;
-};
-
 const APPS_SCRIPT_URL =
   "https://script.google.com/macros/s/AKfycbzVisTqPz3PFf84Cbdz42rcaAPG7An9WlimR57dAIS6NJX7GvipXOvLpk5HUW420jGm/exec";
 
-const RECAPTCHA_SITE_KEY = "6LcvwrgsAAAAABZ663yUOiMEB6bqyAD4KYQOBrb4";
+const RECAPTCHA_SITE_KEY = "PUT_YOUR_RECAPTCHA_V3_SITE_KEY_HERE";
 const RECAPTCHA_ACTION = "submit_contact_form";
-const CHALLENGE_CALLBACK_NAME = "__belugaChallengeCallback";
+const BACKEND_TIMEOUT_MS = 30000;
+
+type BackendPayload = {
+  source: string;
+  ok: boolean;
+  code: string;
+  message: string;
+  requestId: string;
+  debug?: unknown;
+};
 
 declare global {
   interface Window {
-    __belugaChallengeCallback?: (data: unknown) => void;
     grecaptcha?: {
       ready: (callback: () => void) => void;
       execute: (siteKey: string, options: { action: string }) => Promise<string>;
@@ -63,26 +27,8 @@ declare global {
 
 export default function BackendTest(): JSX.Element {
   const formRef = useRef<HTMLFormElement | null>(null);
-  const submitFrameRef = useRef<HTMLIFrameElement | null>(null);
-  const hiddenRefs = useRef<HiddenFieldRefs>({
-    loadTimestamp: null,
-    submittedAt: null,
-    challengeToken: null,
-    challengeTs: null,
-    powNonce: null,
-    powHash: null,
-    uaHash: null,
-    formFingerprint: null,
-    formSeal: null,
-    userAgent: null,
-    language: null,
-    screen: null,
-    timezone: null,
-    tzOffset: null,
-    page: null,
-    origin: null,
-    recaptchaToken: null,
-  });
+  const iframeRef = useRef<HTMLIFrameElement | null>(null);
+  const submitTimerRef = useRef<number | null>(null);
 
   const [email, setEmail] = useState("");
   const [fullName, setFullName] = useState("");
@@ -91,21 +37,41 @@ export default function BackendTest(): JSX.Element {
   const [message, setMessage] = useState("");
   const [marketingConsent, setMarketingConsent] = useState(false);
   const [privacyConsent, setPrivacyConsent] = useState(false);
+
   const [addressField, setAddressField] = useState("");
   const [companyWebsite, setCompanyWebsite] = useState("");
+
   const [loadTimestamp, setLoadTimestamp] = useState<number>(() => Date.now());
+  const [submittedAt, setSubmittedAt] = useState("");
+  const [recaptchaToken, setRecaptchaToken] = useState("");
 
-  const [challenge, setChallenge] = useState<ChallengeResponse | null>(null);
+  const [userAgent, setUserAgent] = useState(
+    () => (typeof navigator !== "undefined" ? navigator.userAgent : "")
+  );
+  const [language, setLanguage] = useState(
+    () => (typeof navigator !== "undefined" ? navigator.language : "")
+  );
+  const [screenValue, setScreenValue] = useState(
+    () => (typeof window !== "undefined" ? `${window.screen.width}x${window.screen.height}` : "")
+  );
+  const [timezone, setTimezone] = useState(
+    () => (typeof Intl !== "undefined" ? Intl.DateTimeFormat().resolvedOptions().timeZone : "")
+  );
+  const [tzOffset, setTzOffset] = useState(
+    () => String(new Date().getTimezoneOffset())
+  );
+  const [page, setPage] = useState(
+    () => (typeof location !== "undefined" ? location.href : "")
+  );
+  const [origin, setOrigin] = useState(
+    () => (typeof location !== "undefined" ? location.origin : "")
+  );
+
+  const [isRecaptchaReady, setIsRecaptchaReady] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [messageType, setMessageType] = useState<"" | "info" | "ok" | "err">("");
-  const [messageText, setMessageText] = useState("");
+  const [statusType, setStatusType] = useState<"" | "info" | "ok" | "err">("");
+  const [statusText, setStatusText] = useState("");
   const [debugLines, setDebugLines] = useState<string[]>([]);
-
-  const pendingChallengeResolveRef = useRef<((value: ChallengeResponse) => void) | null>(null);
-  const pendingChallengeRejectRef = useRef<((reason?: unknown) => void) | null>(null);
-  const pendingChallengeTimerRef = useRef<number | null>(null);
-  const submitTimeoutRef = useRef<number | null>(null);
-  const recaptchaReadyPromiseRef = useRef<Promise<void> | null>(null);
 
   const isOtherSelected = hearAbout === "Other:";
 
@@ -117,28 +83,28 @@ export default function BackendTest(): JSX.Element {
         padding: 24,
         background: "#f5f5f5",
         minHeight: "100vh",
-        boxSizing: "border-box" as const,
+        boxSizing: "border-box" as const
       },
       wrap: {
-        maxWidth: 640,
+        maxWidth: 720,
         margin: "0 auto",
         background: "#fff",
         border: "1px solid #ddd",
         borderRadius: 10,
         padding: 24,
-        boxSizing: "border-box" as const,
+        boxSizing: "border-box" as const
       },
       title: {
         marginTop: 0,
-        fontSize: 24,
+        fontSize: 24
       },
       field: {
-        marginBottom: 16,
+        marginBottom: 16
       },
       label: {
         display: "block",
         marginBottom: 6,
-        fontWeight: 600,
+        fontWeight: 600
       },
       input: {
         width: "100%",
@@ -146,7 +112,7 @@ export default function BackendTest(): JSX.Element {
         padding: 10,
         border: "1px solid #bbb",
         borderRadius: 6,
-        fontSize: 14,
+        fontSize: 14
       },
       textarea: {
         width: "100%",
@@ -155,16 +121,16 @@ export default function BackendTest(): JSX.Element {
         border: "1px solid #bbb",
         borderRadius: 6,
         fontSize: 14,
-        minHeight: 120,
-        resize: "vertical" as const,
+        minHeight: 140,
+        resize: "vertical" as const
       },
       option: {
-        marginBottom: 8,
+        marginBottom: 8
       },
       otherWrap: {
         display: isOtherSelected ? "block" : "none",
         marginTop: 8,
-        marginLeft: 24,
+        marginLeft: 24
       },
       hp: {
         position: "absolute" as const,
@@ -173,7 +139,7 @@ export default function BackendTest(): JSX.Element {
         opacity: 0,
         pointerEvents: "none" as const,
         height: 0,
-        overflow: "hidden" as const,
+        overflow: "hidden" as const
       },
       button: {
         width: "100%",
@@ -184,18 +150,18 @@ export default function BackendTest(): JSX.Element {
         color: "#fff",
         fontSize: 15,
         fontWeight: 700,
-        cursor: isSubmitting ? "not-allowed" : "pointer",
+        cursor: isSubmitting ? "not-allowed" : "pointer"
       },
       msg: {
         marginTop: 16,
         minHeight: 20,
         fontWeight: 700,
         color:
-          messageType === "ok"
+          statusType === "ok"
             ? "#1f7a1f"
-            : messageType === "err"
+            : statusType === "err"
               ? "#b00020"
-              : "#444",
+              : "#444"
       },
       debug: {
         marginTop: 24,
@@ -206,32 +172,25 @@ export default function BackendTest(): JSX.Element {
         fontFamily: "monospace",
         fontSize: 12,
         whiteSpace: "pre-wrap" as const,
-        wordBreak: "break-word" as const,
+        wordBreak: "break-word" as const
       },
       iframe: {
-        display: "none",
-      },
+        display: "none"
+      }
     }),
-    [isOtherSelected, isSubmitting, messageType]
+    [isOtherSelected, isSubmitting, statusType]
   );
 
   const log = useCallback((msg: string, obj?: unknown): void => {
     setDebugLines((prev) => [
       ...prev,
-      obj === undefined ? msg : `${msg} ${JSON.stringify(obj, null, 2)}`,
+      obj === undefined ? msg : `${msg} ${JSON.stringify(obj, null, 2)}`
     ]);
   }, []);
 
-  const setHiddenValue = useCallback((name: keyof HiddenFieldRefs, value: string): void => {
-    const element = hiddenRefs.current[name];
-    if (element) {
-      element.value = value;
-    }
-  }, []);
-
   const setStatus = useCallback((type: "" | "info" | "ok" | "err", text: string): void => {
-    setMessageType(type);
-    setMessageText(text);
+    setStatusType(type);
+    setStatusText(text);
   }, []);
 
   const normalizeText = useCallback((str: string): string => {
@@ -242,237 +201,119 @@ export default function BackendTest(): JSX.Element {
       .trim();
   }, []);
 
-  const validEmail = useCallback((value: string): boolean => {
-    return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(value);
-  }, []);
-
-  const sha256Hex = useCallback(async (text: string): Promise<string> => {
-    const enc = new TextEncoder().encode(text);
-    const digest = await crypto.subtle.digest("SHA-256", enc);
-    return Array.from(new Uint8Array(digest))
-      .map((b) => b.toString(16).padStart(2, "0"))
-      .join("");
-  }, []);
-
-  const buildFormFingerprint = useCallback(async (): Promise<string> => {
-    const raw = [
-      normalizeText(email).toLowerCase(),
-      normalizeText(fullName),
-      normalizeText(hearAbout),
-      normalizeText(otherText),
-      normalizeText(message),
-    ].join("|");
-
-    return sha256Hex(raw);
-  }, [email, fullName, hearAbout, message, normalizeText, otherText, sha256Hex]);
-
-  const buildFormSeal = useCallback(
-    async (
-      challengeObj: ChallengeResponse,
-      uaHashValue: string,
-      formFingerprintValue: string
-    ): Promise<string> => {
-      const raw = [
-        challengeObj.nonce,
-        challengeObj.ts,
-        uaHashValue,
-        formFingerprintValue,
-      ].join("|");
-
-      return sha256Hex(raw);
-    },
-    [sha256Hex]
-  );
-
   const validateClient = useCallback((): void => {
     const cleanEmail = normalizeText(email);
     const cleanName = normalizeText(fullName);
     const cleanMessage = normalizeText(message);
 
-    if (!validEmail(cleanEmail)) {
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(cleanEmail)) {
       throw new Error("Invalid email");
     }
-
     if (cleanName.length < 2) {
       throw new Error("Invalid full name");
     }
-
     if (!hearAbout) {
-      throw new Error("Select hearAbout");
+      throw new Error("Please select how you heard about us");
     }
-
     if (hearAbout === "Other:" && normalizeText(otherText).length < 2) {
-      throw new Error("Other is required");
+      throw new Error("Please specify the other source");
     }
-
     if (cleanMessage.length < 10) {
       throw new Error("Message too short");
     }
-
     if (!privacyConsent) {
       throw new Error("Privacy consent required");
     }
-  }, [email, fullName, hearAbout, message, normalizeText, otherText, privacyConsent, validEmail]);
-
-  const clearPendingChallenge = useCallback((): void => {
-    if (pendingChallengeTimerRef.current) {
-      window.clearTimeout(pendingChallengeTimerRef.current);
-      pendingChallengeTimerRef.current = null;
+    if (!isRecaptchaReady) {
+      throw new Error("reCAPTCHA is not ready yet");
     }
-    pendingChallengeResolveRef.current = null;
-    pendingChallengeRejectRef.current = null;
-  }, []);
+  }, [
+    email,
+    fullName,
+    hearAbout,
+    otherText,
+    message,
+    privacyConsent,
+    isRecaptchaReady,
+    normalizeText
+  ]);
 
-  const removeChallengeScript = useCallback((): void => {
-    const old = document.getElementById("challengeScript");
-    if (old && old.parentNode) {
-      old.parentNode.removeChild(old);
-    }
-  }, []);
-
-  const requestChallenge = useCallback(async (): Promise<ChallengeResponse> => {
-    return new Promise<ChallengeResponse>((resolve, reject) => {
-      removeChallengeScript();
-      setChallenge(null);
-
-      pendingChallengeResolveRef.current = resolve;
-      pendingChallengeRejectRef.current = reject;
-
-      pendingChallengeTimerRef.current = window.setTimeout(() => {
-        clearPendingChallenge();
-        reject(new Error("Challenge timeout"));
-      }, 10000);
-
-      const script = document.createElement("script");
-      script.id = "challengeScript";
-      script.async = true;
-      script.src =
-        `${APPS_SCRIPT_URL}?action=challenge&callback=${encodeURIComponent(CHALLENGE_CALLBACK_NAME)}&_ts=${Date.now()}`;
-
-      script.onerror = () => {
-        clearPendingChallenge();
-        reject(new Error("Challenge script load failed"));
-      };
-
-      document.body.appendChild(script);
-    });
-  }, [clearPendingChallenge, removeChallengeScript]);
-
-  const ensureRecaptchaScript = useCallback(async (): Promise<void> => {
+  const loadRecaptcha = useCallback(async (): Promise<void> => {
     if (window.grecaptcha) {
+      setIsRecaptchaReady(true);
       return;
     }
 
-    if (!recaptchaReadyPromiseRef.current) {
-      recaptchaReadyPromiseRef.current = new Promise<void>((resolve, reject) => {
-        const existing = document.getElementById("recaptcha-v3-script") as HTMLScriptElement | null;
-        if (existing) {
-          existing.addEventListener("load", () => resolve(), { once: true });
-          existing.addEventListener("error", () => reject(new Error("reCAPTCHA script load failed")), { once: true });
-          return;
-        }
+    await new Promise<void>((resolve, reject) => {
+      const existing = document.querySelector<HTMLScriptElement>(
+        'script[data-role="beluga-recaptcha"]'
+      );
 
-        const script = document.createElement("script");
-        script.id = "recaptcha-v3-script";
-        script.async = true;
-        script.defer = true;
-        script.src = `https://www.google.com/recaptcha/api.js?render=${encodeURIComponent(RECAPTCHA_SITE_KEY)}`;
-        script.onload = () => resolve();
-        script.onerror = () => reject(new Error("reCAPTCHA script load failed"));
-        document.head.appendChild(script);
-      });
-    }
-
-    await recaptchaReadyPromiseRef.current;
-  }, []);
-
-  const getRecaptchaToken = useCallback(async (): Promise<string> => {
-    if (!RECAPTCHA_SITE_KEY || RECAPTCHA_SITE_KEY.includes("REPLACE_WITH")) {
-      throw new Error("Configure RECAPTCHA_SITE_KEY in BackendTest.tsx");
-    }
-
-    await ensureRecaptchaScript();
-
-    return new Promise<string>((resolve, reject) => {
-      if (!window.grecaptcha) {
-        reject(new Error("reCAPTCHA unavailable"));
+      if (existing) {
+        existing.addEventListener("load", () => resolve(), { once: true });
+        existing.addEventListener("error", () => reject(new Error("Failed to load reCAPTCHA")), {
+          once: true
+        });
         return;
       }
 
-      window.grecaptcha.ready(() => {
-        window.grecaptcha!
-          .execute(RECAPTCHA_SITE_KEY, { action: RECAPTCHA_ACTION })
-          .then(resolve)
-          .catch(() => reject(new Error("reCAPTCHA execution failed")));
-      });
+      const script = document.createElement("script");
+      script.src = `https://www.google.com/recaptcha/api.js?render=${encodeURIComponent(
+        RECAPTCHA_SITE_KEY
+      )}`;
+      script.async = true;
+      script.defer = true;
+      script.dataset.role = "beluga-recaptcha";
+      script.onload = () => resolve();
+      script.onerror = () => reject(new Error("Failed to load reCAPTCHA"));
+      document.head.appendChild(script);
     });
-  }, [ensureRecaptchaScript]);
 
-  const solvePow = useCallback(
-    async (challengeObj: ChallengeResponse, formFingerprintValue: string): Promise<PowResult> => {
-      const prefix = "0".repeat(challengeObj.difficulty);
-      const currentUaHash = await sha256Hex(navigator.userAgent || "");
-      const base =
-        `${challengeObj.nonce}|${challengeObj.ts}|${currentUaHash}|${formFingerprintValue}|`;
+    if (!window.grecaptcha) {
+      throw new Error("reCAPTCHA API unavailable");
+    }
 
-      let counter = 0;
-      while (counter < 400000) {
-        const candidate = String(counter);
-        counter += 1;
+    await new Promise<void>((resolve) => {
+      window.grecaptcha!.ready(() => resolve());
+    });
 
-        const hash = await sha256Hex(base + candidate);
-        if (hash.startsWith(prefix)) {
-          return {
-            uaHash: currentUaHash,
-            powNonce: candidate,
-            powHash: hash,
-          };
-        }
+    setIsRecaptchaReady(true);
+  }, []);
 
-        if (counter % 200 === 0) {
-          await new Promise((resolve) => window.setTimeout(resolve, 0));
-        }
-      }
+  const executeRecaptcha = useCallback(async (): Promise<string> => {
+    if (!window.grecaptcha) {
+      throw new Error("reCAPTCHA API unavailable");
+    }
 
-      throw new Error("Unable to solve proof of work");
-    },
-    [sha256Hex]
-  );
+    const token = await window.grecaptcha.execute(RECAPTCHA_SITE_KEY, {
+      action: RECAPTCHA_ACTION
+    });
 
-  const fillHiddenFields = useCallback(
-    async (
-      currentChallenge: ChallengeResponse,
-      pow: PowResult,
-      formFingerprintValue: string,
-      formSealValue: string
-    ): Promise<void> => {
-      const now = String(Date.now());
-      const currentPage = window.location.href;
-      const currentOrigin = window.location.origin;
-      const recaptchaToken = await getRecaptchaToken();
+    if (!token) {
+      throw new Error("Failed to get reCAPTCHA token");
+    }
 
-      setHiddenValue("loadTimestamp", String(loadTimestamp));
-      setHiddenValue("submittedAt", now);
-      setHiddenValue("challengeToken", currentChallenge.token);
-      setHiddenValue("challengeTs", String(currentChallenge.ts));
-      setHiddenValue("powNonce", pow.powNonce);
-      setHiddenValue("powHash", pow.powHash);
-      setHiddenValue("uaHash", pow.uaHash);
-      setHiddenValue("formFingerprint", formFingerprintValue);
-      setHiddenValue("formSeal", formSealValue);
-      setHiddenValue("userAgent", navigator.userAgent || "");
-      setHiddenValue("language", navigator.language || "");
-      setHiddenValue("screen", `${window.screen.width}x${window.screen.height}`);
-      setHiddenValue("timezone", Intl.DateTimeFormat().resolvedOptions().timeZone || "");
-      setHiddenValue("tzOffset", String(new Date().getTimezoneOffset()));
-      setHiddenValue("page", currentPage);
-      setHiddenValue("origin", currentOrigin);
-      setHiddenValue("recaptchaToken", recaptchaToken);
-    },
-    [getRecaptchaToken, loadTimestamp, setHiddenValue]
-  );
+    return token;
+  }, []);
 
-  const resetSubmissionState = useCallback((): void => {
+  const refreshRuntimeFields = useCallback(() => {
+    setUserAgent(navigator.userAgent || "");
+    setLanguage(navigator.language || "");
+    setScreenValue(`${window.screen.width}x${window.screen.height}`);
+    setTimezone(Intl.DateTimeFormat().resolvedOptions().timeZone || "");
+    setTzOffset(String(new Date().getTimezoneOffset()));
+    setPage(location.href || "");
+    setOrigin(location.origin || "");
+  }, []);
+
+  const clearSubmitTimeout = useCallback(() => {
+    if (submitTimerRef.current) {
+      window.clearTimeout(submitTimerRef.current);
+      submitTimerRef.current = null;
+    }
+  }, []);
+
+  const resetFormAfterSuccess = useCallback(() => {
     const now = Date.now();
     setEmail("");
     setFullName("");
@@ -484,77 +325,23 @@ export default function BackendTest(): JSX.Element {
     setAddressField("");
     setCompanyWebsite("");
     setLoadTimestamp(now);
-
-    setHiddenValue("loadTimestamp", String(now));
-    setHiddenValue("submittedAt", "");
-    setHiddenValue("challengeToken", "");
-    setHiddenValue("challengeTs", "");
-    setHiddenValue("powNonce", "");
-    setHiddenValue("powHash", "");
-    setHiddenValue("uaHash", "");
-    setHiddenValue("formFingerprint", "");
-    setHiddenValue("formSeal", "");
-    setHiddenValue("userAgent", "");
-    setHiddenValue("language", "");
-    setHiddenValue("screen", "");
-    setHiddenValue("timezone", "");
-    setHiddenValue("tzOffset", "");
-    setHiddenValue("page", "");
-    setHiddenValue("origin", "");
-    setHiddenValue("recaptchaToken", "");
-  }, [setHiddenValue]);
+    setSubmittedAt("");
+    setRecaptchaToken("");
+    refreshRuntimeFields();
+  }, [refreshRuntimeFields]);
 
   useEffect(() => {
-    setHiddenValue("loadTimestamp", String(loadTimestamp));
-  }, [loadTimestamp, setHiddenValue]);
+    refreshRuntimeFields();
 
-  useEffect(() => {
-    window[CHALLENGE_CALLBACK_NAME] = (data: unknown) => {
-      const maybeChallenge =
-        typeof data === "object" && data !== null && (data as { ok?: boolean }).ok === true
-          ? (data as ChallengeResponse)
-          : null;
-
-      if (!maybeChallenge) {
-        if (pendingChallengeTimerRef.current) {
-          window.clearTimeout(pendingChallengeTimerRef.current);
-          pendingChallengeTimerRef.current = null;
-        }
-        pendingChallengeRejectRef.current?.(new Error("Invalid challenge payload"));
-        pendingChallengeResolveRef.current = null;
-        pendingChallengeRejectRef.current = null;
-        return;
-      }
-
-      setChallenge(maybeChallenge);
-      log("Challenge received:", maybeChallenge);
-
-      if (pendingChallengeTimerRef.current) {
-        window.clearTimeout(pendingChallengeTimerRef.current);
-        pendingChallengeTimerRef.current = null;
-      }
-      pendingChallengeResolveRef.current?.(maybeChallenge);
-      pendingChallengeResolveRef.current = null;
-      pendingChallengeRejectRef.current = null;
-    };
-
-    void requestChallenge().catch((err: unknown) => {
-      const text = err instanceof Error ? err.message : "Initial challenge failed";
-      log("Initial challenge error:", text);
+    loadRecaptcha().catch((error: unknown) => {
+      const text = error instanceof Error ? error.message : "Failed to load reCAPTCHA";
+      log("reCAPTCHA load error:", text);
       setStatus("err", text);
     });
 
-    return () => {
-      clearPendingChallenge();
-      removeChallengeScript();
-      delete window[CHALLENGE_CALLBACK_NAME];
-    };
-  }, [clearPendingChallenge, log, removeChallengeScript, requestChallenge, setStatus]);
-
-  useEffect(() => {
-    const handleMessage = (event: MessageEvent<BackendMessage>) => {
-      const allowedOrigins = [new URL(APPS_SCRIPT_URL).origin, window.location.origin];
-      if (!allowedOrigins.includes(event.origin)) {
+    const onMessage = (event: MessageEvent<BackendPayload>) => {
+      const expectedOrigin = new URL(APPS_SCRIPT_URL).origin;
+      if (event.origin !== expectedOrigin) {
         return;
       }
 
@@ -563,39 +350,26 @@ export default function BackendTest(): JSX.Element {
         return;
       }
 
-      if (submitTimeoutRef.current) {
-        window.clearTimeout(submitTimeoutRef.current);
-        submitTimeoutRef.current = null;
-      }
-
+      clearSubmitTimeout();
       setIsSubmitting(false);
+
       log("Backend response:", data);
 
       if (data.ok) {
         setStatus("ok", data.message || "Form submitted successfully");
-        resetSubmissionState();
+        resetFormAfterSuccess();
       } else {
         setStatus("err", data.message || "Submission rejected");
       }
-
-      setChallenge(null);
-      void requestChallenge().catch((err: unknown) => {
-        const text = err instanceof Error ? err.message : "Challenge refresh failed";
-        log("Challenge refresh error:", text);
-      });
     };
 
-    window.addEventListener("message", handleMessage);
-    return () => window.removeEventListener("message", handleMessage);
-  }, [log, requestChallenge, resetSubmissionState, setStatus]);
+    window.addEventListener("message", onMessage);
 
-  useEffect(() => {
     return () => {
-      if (submitTimeoutRef.current) {
-        window.clearTimeout(submitTimeoutRef.current);
-      }
+      clearSubmitTimeout();
+      window.removeEventListener("message", onMessage);
     };
-  }, []);
+  }, [clearSubmitTimeout, loadRecaptcha, log, refreshRuntimeFields, resetFormAfterSuccess, setStatus]);
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>): Promise<void> => {
     e.preventDefault();
@@ -606,38 +380,39 @@ export default function BackendTest(): JSX.Element {
 
     try {
       validateClient();
-      setStatus("info", "Verifying...");
+      refreshRuntimeFields();
+
+      setStatus("info", "Verifying and submitting...");
       setIsSubmitting(true);
 
-      const currentChallenge = challenge && challenge.ok ? challenge : await requestChallenge();
-      const currentFormFingerprint = await buildFormFingerprint();
-      log("Form fingerprint:", currentFormFingerprint);
+      const token = await executeRecaptcha();
+      const now = Date.now();
 
-      const pow = await solvePow(currentChallenge, currentFormFingerprint);
-      log("PoW solved:", pow);
+      setSubmittedAt(String(now));
+      setRecaptchaToken(token);
 
-      const currentFormSeal = await buildFormSeal(
-        currentChallenge,
-        pow.uaHash,
-        currentFormFingerprint
-      );
-      log("Form seal:", currentFormSeal);
+      log("Submit payload prepared:", {
+        action: APPS_SCRIPT_URL,
+        page: location.href,
+        origin: location.origin,
+        hearAbout
+      });
 
-      await fillHiddenFields(currentChallenge, pow, currentFormFingerprint, currentFormSeal);
+      await new Promise((resolve) => setTimeout(resolve, 0));
 
-      submitTimeoutRef.current = window.setTimeout(() => {
+      submitTimerRef.current = window.setTimeout(() => {
         setIsSubmitting(false);
         setStatus("err", "Backend response timeout");
-      }, 30000);
+        log("Submit timeout after ms:", BACKEND_TIMEOUT_MS);
+      }, BACKEND_TIMEOUT_MS);
 
       formRef.current?.submit();
-    } catch (err) {
-      const text = err instanceof Error ? err.message : "Submit failed";
-      console.error(err);
-      log("Submit error:", text);
+    } catch (error) {
+      clearSubmitTimeout();
       setIsSubmitting(false);
+      const text = error instanceof Error ? error.message : "Submit failed";
+      log("Submit error:", text);
       setStatus("err", text);
-      setChallenge(null);
     }
   };
 
@@ -715,7 +490,7 @@ export default function BackendTest(): JSX.Element {
               "Search Engine (Google, Bing, etc.)",
               "Social Media (LinkedIn, YouTube, etc.)",
               "Referral/Word of Mouth",
-              "LocLunch",
+              "LocLunch"
             ].map((option) => (
               <div key={option} style={styles.option}>
                 <label>
@@ -726,13 +501,7 @@ export default function BackendTest(): JSX.Element {
                     checked={hearAbout === option}
                     onChange={(e) => setHearAbout(e.target.value)}
                   />{" "}
-                  {option === "Referral/Word of Mouth"
-                    ? "Referral"
-                    : option === "LocLunch"
-                      ? "LocLunch"
-                      : option === "Search Engine (Google, Bing, etc.)"
-                        ? "Search Engine"
-                        : "Social Media"}
+                  {option}
                 </label>
               </div>
             ))}
@@ -809,33 +578,26 @@ export default function BackendTest(): JSX.Element {
             </label>
           </div>
 
-          <input ref={(el) => { hiddenRefs.current.loadTimestamp = el; }} name="loadTimestamp" type="hidden" defaultValue={String(loadTimestamp)} />
-          <input ref={(el) => { hiddenRefs.current.submittedAt = el; }} name="submittedAt" type="hidden" defaultValue="" />
-          <input ref={(el) => { hiddenRefs.current.challengeToken = el; }} name="challengeToken" type="hidden" defaultValue="" />
-          <input ref={(el) => { hiddenRefs.current.challengeTs = el; }} name="challengeTs" type="hidden" defaultValue="" />
-          <input ref={(el) => { hiddenRefs.current.powNonce = el; }} name="powNonce" type="hidden" defaultValue="" />
-          <input ref={(el) => { hiddenRefs.current.powHash = el; }} name="powHash" type="hidden" defaultValue="" />
-          <input ref={(el) => { hiddenRefs.current.uaHash = el; }} name="uaHash" type="hidden" defaultValue="" />
-          <input ref={(el) => { hiddenRefs.current.formFingerprint = el; }} name="formFingerprint" type="hidden" defaultValue="" />
-          <input ref={(el) => { hiddenRefs.current.formSeal = el; }} name="formSeal" type="hidden" defaultValue="" />
-          <input ref={(el) => { hiddenRefs.current.userAgent = el; }} name="userAgent" type="hidden" defaultValue="" />
-          <input ref={(el) => { hiddenRefs.current.language = el; }} name="language" type="hidden" defaultValue="" />
-          <input ref={(el) => { hiddenRefs.current.screen = el; }} name="screen" type="hidden" defaultValue="" />
-          <input ref={(el) => { hiddenRefs.current.timezone = el; }} name="timezone" type="hidden" defaultValue="" />
-          <input ref={(el) => { hiddenRefs.current.tzOffset = el; }} name="tzOffset" type="hidden" defaultValue="" />
-          <input ref={(el) => { hiddenRefs.current.page = el; }} name="page" type="hidden" defaultValue="" />
-          <input ref={(el) => { hiddenRefs.current.origin = el; }} name="origin" type="hidden" defaultValue="" />
-          <input ref={(el) => { hiddenRefs.current.recaptchaToken = el; }} name="recaptchaToken" type="hidden" defaultValue="" />
+          <input name="loadTimestamp" type="hidden" value={String(loadTimestamp)} readOnly />
+          <input name="submittedAt" type="hidden" value={submittedAt} readOnly />
+          <input name="recaptchaToken" type="hidden" value={recaptchaToken} readOnly />
+          <input name="userAgent" type="hidden" value={userAgent} readOnly />
+          <input name="language" type="hidden" value={language} readOnly />
+          <input name="screen" type="hidden" value={screenValue} readOnly />
+          <input name="timezone" type="hidden" value={timezone} readOnly />
+          <input name="tzOffset" type="hidden" value={tzOffset} readOnly />
+          <input name="page" type="hidden" value={page} readOnly />
+          <input name="origin" type="hidden" value={origin} readOnly />
 
-          <button type="submit" disabled={isSubmitting} style={styles.button}>
-            {isSubmitting ? "Verifying..." : "Submit"}
+          <button type="submit" disabled={isSubmitting || !isRecaptchaReady} style={styles.button}>
+            {isSubmitting ? "Verifying..." : isRecaptchaReady ? "Submit" : "Loading reCAPTCHA..."}
           </button>
 
-          <div style={styles.msg}>{messageText}</div>
+          <div style={styles.msg}>{statusText}</div>
         </form>
 
         <iframe
-          ref={submitFrameRef}
+          ref={iframeRef}
           id="submitFrame"
           name="submitFrame"
           title="hidden submit frame"
