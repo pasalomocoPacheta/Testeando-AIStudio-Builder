@@ -15,18 +15,74 @@ type PowResult = {
   powHash: string;
 };
 
+type HiddenFieldRefs = {
+  loadTimestamp: HTMLInputElement | null;
+  submittedAt: HTMLInputElement | null;
+  challengeToken: HTMLInputElement | null;
+  challengeTs: HTMLInputElement | null;
+  powNonce: HTMLInputElement | null;
+  powHash: HTMLInputElement | null;
+  uaHash: HTMLInputElement | null;
+  formFingerprint: HTMLInputElement | null;
+  formSeal: HTMLInputElement | null;
+  userAgent: HTMLInputElement | null;
+  language: HTMLInputElement | null;
+  screen: HTMLInputElement | null;
+  timezone: HTMLInputElement | null;
+  tzOffset: HTMLInputElement | null;
+  page: HTMLInputElement | null;
+  origin: HTMLInputElement | null;
+  recaptchaToken: HTMLInputElement | null;
+};
+
+type BackendMessage = {
+  source?: string;
+  ok?: boolean;
+  code?: string;
+  message?: string;
+  requestId?: string;
+  debug?: unknown;
+};
+
 const APPS_SCRIPT_URL =
   "https://script.google.com/macros/s/AKfycbzViR2BMtubvPV8slAJz9E5rLjOyJz8_iKB19wFJhCrMIcRYfMsHVLT4APferiKu4mX/exec";
+
+const RECAPTCHA_SITE_KEY = "REPLACE_WITH_YOUR_RECAPTCHA_V3_SITE_KEY";
+const RECAPTCHA_ACTION = "submit_contact_form";
+const CHALLENGE_CALLBACK_NAME = "__belugaChallengeCallback";
 
 declare global {
   interface Window {
     __belugaChallengeCallback?: (data: unknown) => void;
+    grecaptcha?: {
+      ready: (callback: () => void) => void;
+      execute: (siteKey: string, options: { action: string }) => Promise<string>;
+    };
   }
 }
 
 export default function BackendTest(): JSX.Element {
   const formRef = useRef<HTMLFormElement | null>(null);
   const submitFrameRef = useRef<HTMLIFrameElement | null>(null);
+  const hiddenRefs = useRef<HiddenFieldRefs>({
+    loadTimestamp: null,
+    submittedAt: null,
+    challengeToken: null,
+    challengeTs: null,
+    powNonce: null,
+    powHash: null,
+    uaHash: null,
+    formFingerprint: null,
+    formSeal: null,
+    userAgent: null,
+    language: null,
+    screen: null,
+    timezone: null,
+    tzOffset: null,
+    page: null,
+    origin: null,
+    recaptchaToken: null,
+  });
 
   const [email, setEmail] = useState("");
   const [fullName, setFullName] = useState("");
@@ -35,26 +91,9 @@ export default function BackendTest(): JSX.Element {
   const [message, setMessage] = useState("");
   const [marketingConsent, setMarketingConsent] = useState(false);
   const [privacyConsent, setPrivacyConsent] = useState(false);
-
   const [addressField, setAddressField] = useState("");
   const [companyWebsite, setCompanyWebsite] = useState("");
-
   const [loadTimestamp, setLoadTimestamp] = useState<number>(() => Date.now());
-  const [submittedAt, setSubmittedAt] = useState("");
-  const [challengeToken, setChallengeToken] = useState("");
-  const [challengeTs, setChallengeTs] = useState("");
-  const [powNonce, setPowNonce] = useState("");
-  const [powHash, setPowHash] = useState("");
-  const [uaHash, setUaHash] = useState("");
-  const [formFingerprint, setFormFingerprint] = useState("");
-  const [formSeal, setFormSeal] = useState("");
-  
-  const [userAgent, setUserAgent] = useState(() => typeof navigator !== "undefined" ? navigator.userAgent : "");
-  const [language, setLanguage] = useState(() => typeof navigator !== "undefined" ? navigator.language : "");
-  const [screenValue, setScreenValue] = useState(() => typeof window !== "undefined" ? `${window.screen.width}x${window.screen.height}` : "");
-  const [timezone, setTimezone] = useState(() => typeof Intl !== "undefined" ? Intl.DateTimeFormat().resolvedOptions().timeZone : "");
-  const [tzOffset, setTzOffset] = useState(() => typeof Date !== "undefined" ? String(new Date().getTimezoneOffset()) : "");
-  const [page, setPage] = useState(() => typeof location !== "undefined" ? location.href : "");
 
   const [challenge, setChallenge] = useState<ChallengeResponse | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -62,10 +101,11 @@ export default function BackendTest(): JSX.Element {
   const [messageText, setMessageText] = useState("");
   const [debugLines, setDebugLines] = useState<string[]>([]);
 
-  const initialFrameLoadPassedRef = useRef(false);
   const pendingChallengeResolveRef = useRef<((value: ChallengeResponse) => void) | null>(null);
   const pendingChallengeRejectRef = useRef<((reason?: unknown) => void) | null>(null);
   const pendingChallengeTimerRef = useRef<number | null>(null);
+  const submitTimeoutRef = useRef<number | null>(null);
+  const recaptchaReadyPromiseRef = useRef<Promise<void> | null>(null);
 
   const isOtherSelected = hearAbout === "Other:";
 
@@ -182,32 +222,39 @@ export default function BackendTest(): JSX.Element {
     ]);
   }, []);
 
-  function setStatus(type: "" | "info" | "ok" | "err", text: string): void {
+  const setHiddenValue = useCallback((name: keyof HiddenFieldRefs, value: string): void => {
+    const element = hiddenRefs.current[name];
+    if (element) {
+      element.value = value;
+    }
+  }, []);
+
+  const setStatus = useCallback((type: "" | "info" | "ok" | "err", text: string): void => {
     setMessageType(type);
     setMessageText(text);
-  }
+  }, []);
 
-  function normalizeText(str: string): string {
+  const normalizeText = useCallback((str: string): string => {
     return String(str || "")
       .normalize("NFKC")
       .replace(/[\u200B-\u200D\uFEFF]/g, "")
       .replace(/\s+/g, " ")
       .trim();
-  }
+  }, []);
 
-  function validEmail(value: string): boolean {
+  const validEmail = useCallback((value: string): boolean => {
     return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(value);
-  }
+  }, []);
 
-  async function sha256Hex(text: string): Promise<string> {
+  const sha256Hex = useCallback(async (text: string): Promise<string> => {
     const enc = new TextEncoder().encode(text);
     const digest = await crypto.subtle.digest("SHA-256", enc);
     return Array.from(new Uint8Array(digest))
       .map((b) => b.toString(16).padStart(2, "0"))
       .join("");
-  }
+  }, []);
 
-  async function buildFormFingerprint(): Promise<string> {
+  const buildFormFingerprint = useCallback(async (): Promise<string> => {
     const raw = [
       normalizeText(email).toLowerCase(),
       normalizeText(fullName),
@@ -217,24 +264,27 @@ export default function BackendTest(): JSX.Element {
     ].join("|");
 
     return sha256Hex(raw);
-  }
+  }, [email, fullName, hearAbout, message, normalizeText, otherText, sha256Hex]);
 
-  async function buildFormSeal(
-    challengeObj: ChallengeResponse,
-    uaHashValue: string,
-    formFingerprintValue: string
-  ): Promise<string> {
-    const raw = [
-      challengeObj.nonce,
-      challengeObj.ts,
-      uaHashValue,
-      formFingerprintValue,
-    ].join("|");
+  const buildFormSeal = useCallback(
+    async (
+      challengeObj: ChallengeResponse,
+      uaHashValue: string,
+      formFingerprintValue: string
+    ): Promise<string> => {
+      const raw = [
+        challengeObj.nonce,
+        challengeObj.ts,
+        uaHashValue,
+        formFingerprintValue,
+      ].join("|");
 
-    return sha256Hex(raw);
-  }
+      return sha256Hex(raw);
+    },
+    [sha256Hex]
+  );
 
-  function validateClient(): void {
+  const validateClient = useCallback((): void => {
     const cleanEmail = normalizeText(email);
     const cleanName = normalizeText(fullName);
     const cleanMessage = normalizeText(message);
@@ -262,7 +312,7 @@ export default function BackendTest(): JSX.Element {
     if (!privacyConsent) {
       throw new Error("Privacy consent required");
     }
-  }
+  }, [email, fullName, hearAbout, message, normalizeText, otherText, privacyConsent, validEmail]);
 
   const clearPendingChallenge = useCallback((): void => {
     if (pendingChallengeTimerRef.current) {
@@ -273,14 +323,18 @@ export default function BackendTest(): JSX.Element {
     pendingChallengeRejectRef.current = null;
   }, []);
 
+  const removeChallengeScript = useCallback((): void => {
+    const old = document.getElementById("challengeScript");
+    if (old && old.parentNode) {
+      old.parentNode.removeChild(old);
+    }
+  }, []);
+
   const requestChallenge = useCallback(async (): Promise<ChallengeResponse> => {
     return new Promise<ChallengeResponse>((resolve, reject) => {
-      const old = document.getElementById("challengeScript");
-      if (old && old.parentNode) {
-        old.parentNode.removeChild(old);
-      }
-
+      removeChallengeScript();
       setChallenge(null);
+
       pendingChallengeResolveRef.current = resolve;
       pendingChallengeRejectRef.current = reject;
 
@@ -289,87 +343,136 @@ export default function BackendTest(): JSX.Element {
         reject(new Error("Challenge timeout"));
       }, 10000);
 
-      const s = document.createElement("script");
-      s.id = "challengeScript";
-      s.async = true;
-      s.src =
-        APPS_SCRIPT_URL +
-        "?action=challenge" +
-        "&callback=__belugaChallengeCallback" +
-        "&_ts=" +
-        Date.now();
+      const script = document.createElement("script");
+      script.id = "challengeScript";
+      script.async = true;
+      script.src =
+        `${APPS_SCRIPT_URL}?action=challenge&callback=${encodeURIComponent(CHALLENGE_CALLBACK_NAME)}&_ts=${Date.now()}`;
 
-      s.onerror = () => {
+      script.onerror = () => {
         clearPendingChallenge();
         reject(new Error("Challenge script load failed"));
       };
 
-      document.body.appendChild(s);
+      document.body.appendChild(script);
     });
-  }, [clearPendingChallenge]);
+  }, [clearPendingChallenge, removeChallengeScript]);
 
-  async function solvePow(
-    challengeObj: ChallengeResponse,
-    formFingerprintValue: string
-  ): Promise<PowResult> {
-    const prefix = "0".repeat(challengeObj.difficulty);
-    const currentUaHash = await sha256Hex(navigator.userAgent);
-    const base =
-      challengeObj.nonce +
-      "|" +
-      challengeObj.ts +
-      "|" +
-      currentUaHash +
-      "|" +
-      formFingerprintValue +
-      "|";
-
-    let counter = 0;
-
-    while (counter < 400000) {
-      const candidate = String(counter);
-      counter += 1;
-
-      const hash = await sha256Hex(base + candidate);
-      if (hash.startsWith(prefix)) {
-        return {
-          uaHash: currentUaHash,
-          powNonce: candidate,
-          powHash: hash,
-        };
-      }
-
-      if (counter % 200 === 0) {
-        await new Promise((r) => setTimeout(r, 0));
-      }
+  const ensureRecaptchaScript = useCallback(async (): Promise<void> => {
+    if (window.grecaptcha) {
+      return;
     }
 
-    throw new Error("Unable to solve proof of work");
-  }
+    if (!recaptchaReadyPromiseRef.current) {
+      recaptchaReadyPromiseRef.current = new Promise<void>((resolve, reject) => {
+        const existing = document.getElementById("recaptcha-v3-script") as HTMLScriptElement | null;
+        if (existing) {
+          existing.addEventListener("load", () => resolve(), { once: true });
+          existing.addEventListener("error", () => reject(new Error("reCAPTCHA script load failed")), { once: true });
+          return;
+        }
 
-  function fillHiddenFields(
-    pow: PowResult,
-    formFingerprintValue: string,
-    formSealValue: string,
-    challengeObj: ChallengeResponse
-  ): void {
-    setSubmittedAt(String(Date.now()));
-    setChallengeToken(challengeObj.token || "");
-    setChallengeTs(String(challengeObj.ts || ""));
-    setPowNonce(pow.powNonce || "");
-    setPowHash(pow.powHash || "");
-    setUaHash(pow.uaHash || "");
-    setFormFingerprint(formFingerprintValue || "");
-    setFormSeal(formSealValue || "");
-    setUserAgent(navigator.userAgent || "");
-    setLanguage(navigator.language || "");
-    setScreenValue(`${window.screen.width}x${window.screen.height}`);
-    setTimezone(Intl.DateTimeFormat().resolvedOptions().timeZone || "");
-    setTzOffset(String(new Date().getTimezoneOffset()));
-    setPage(location.href || "");
-  }
+        const script = document.createElement("script");
+        script.id = "recaptcha-v3-script";
+        script.async = true;
+        script.defer = true;
+        script.src = `https://www.google.com/recaptcha/api.js?render=${encodeURIComponent(RECAPTCHA_SITE_KEY)}`;
+        script.onload = () => resolve();
+        script.onerror = () => reject(new Error("reCAPTCHA script load failed"));
+        document.head.appendChild(script);
+      });
+    }
 
-  function resetSubmissionState(): void {
+    await recaptchaReadyPromiseRef.current;
+  }, []);
+
+  const getRecaptchaToken = useCallback(async (): Promise<string> => {
+    if (!RECAPTCHA_SITE_KEY || RECAPTCHA_SITE_KEY.includes("REPLACE_WITH")) {
+      throw new Error("Configure RECAPTCHA_SITE_KEY in BackendTest.tsx");
+    }
+
+    await ensureRecaptchaScript();
+
+    return new Promise<string>((resolve, reject) => {
+      if (!window.grecaptcha) {
+        reject(new Error("reCAPTCHA unavailable"));
+        return;
+      }
+
+      window.grecaptcha.ready(() => {
+        window.grecaptcha!
+          .execute(RECAPTCHA_SITE_KEY, { action: RECAPTCHA_ACTION })
+          .then(resolve)
+          .catch(() => reject(new Error("reCAPTCHA execution failed")));
+      });
+    });
+  }, [ensureRecaptchaScript]);
+
+  const solvePow = useCallback(
+    async (challengeObj: ChallengeResponse, formFingerprintValue: string): Promise<PowResult> => {
+      const prefix = "0".repeat(challengeObj.difficulty);
+      const currentUaHash = await sha256Hex(navigator.userAgent || "");
+      const base =
+        `${challengeObj.nonce}|${challengeObj.ts}|${currentUaHash}|${formFingerprintValue}|`;
+
+      let counter = 0;
+      while (counter < 400000) {
+        const candidate = String(counter);
+        counter += 1;
+
+        const hash = await sha256Hex(base + candidate);
+        if (hash.startsWith(prefix)) {
+          return {
+            uaHash: currentUaHash,
+            powNonce: candidate,
+            powHash: hash,
+          };
+        }
+
+        if (counter % 200 === 0) {
+          await new Promise((resolve) => window.setTimeout(resolve, 0));
+        }
+      }
+
+      throw new Error("Unable to solve proof of work");
+    },
+    [sha256Hex]
+  );
+
+  const fillHiddenFields = useCallback(
+    async (
+      currentChallenge: ChallengeResponse,
+      pow: PowResult,
+      formFingerprintValue: string,
+      formSealValue: string
+    ): Promise<void> => {
+      const now = String(Date.now());
+      const currentPage = window.location.href;
+      const currentOrigin = window.location.origin;
+      const recaptchaToken = await getRecaptchaToken();
+
+      setHiddenValue("loadTimestamp", String(loadTimestamp));
+      setHiddenValue("submittedAt", now);
+      setHiddenValue("challengeToken", currentChallenge.token);
+      setHiddenValue("challengeTs", String(currentChallenge.ts));
+      setHiddenValue("powNonce", pow.powNonce);
+      setHiddenValue("powHash", pow.powHash);
+      setHiddenValue("uaHash", pow.uaHash);
+      setHiddenValue("formFingerprint", formFingerprintValue);
+      setHiddenValue("formSeal", formSealValue);
+      setHiddenValue("userAgent", navigator.userAgent || "");
+      setHiddenValue("language", navigator.language || "");
+      setHiddenValue("screen", `${window.screen.width}x${window.screen.height}`);
+      setHiddenValue("timezone", Intl.DateTimeFormat().resolvedOptions().timeZone || "");
+      setHiddenValue("tzOffset", String(new Date().getTimezoneOffset()));
+      setHiddenValue("page", currentPage);
+      setHiddenValue("origin", currentOrigin);
+      setHiddenValue("recaptchaToken", recaptchaToken);
+    },
+    [getRecaptchaToken, loadTimestamp, setHiddenValue]
+  );
+
+  const resetSubmissionState = useCallback((): void => {
     const now = Date.now();
     setEmail("");
     setFullName("");
@@ -378,37 +481,41 @@ export default function BackendTest(): JSX.Element {
     setMessage("");
     setMarketingConsent(false);
     setPrivacyConsent(false);
+    setAddressField("");
+    setCompanyWebsite("");
     setLoadTimestamp(now);
 
-    setSubmittedAt("");
-    setChallengeToken("");
-    setChallengeTs("");
-    setPowNonce("");
-    setPowHash("");
-    setUaHash("");
-    setFormFingerprint("");
-    setFormSeal("");
-  }
+    setHiddenValue("loadTimestamp", String(now));
+    setHiddenValue("submittedAt", "");
+    setHiddenValue("challengeToken", "");
+    setHiddenValue("challengeTs", "");
+    setHiddenValue("powNonce", "");
+    setHiddenValue("powHash", "");
+    setHiddenValue("uaHash", "");
+    setHiddenValue("formFingerprint", "");
+    setHiddenValue("formSeal", "");
+    setHiddenValue("userAgent", "");
+    setHiddenValue("language", "");
+    setHiddenValue("screen", "");
+    setHiddenValue("timezone", "");
+    setHiddenValue("tzOffset", "");
+    setHiddenValue("page", "");
+    setHiddenValue("origin", "");
+    setHiddenValue("recaptchaToken", "");
+  }, [setHiddenValue]);
 
   useEffect(() => {
-    window.__belugaChallengeCallback = (data: unknown) => {
+    setHiddenValue("loadTimestamp", String(loadTimestamp));
+  }, [loadTimestamp, setHiddenValue]);
+
+  useEffect(() => {
+    window[CHALLENGE_CALLBACK_NAME] = (data: unknown) => {
       const maybeChallenge =
-        typeof data === "object" && data !== null && (data as { ok?: boolean }).ok
+        typeof data === "object" && data !== null && (data as { ok?: boolean }).ok === true
           ? (data as ChallengeResponse)
           : null;
 
-      setChallenge(maybeChallenge);
-
-      if (maybeChallenge) {
-        log("Challenge received:", maybeChallenge);
-        if (pendingChallengeTimerRef.current) {
-          window.clearTimeout(pendingChallengeTimerRef.current);
-          pendingChallengeTimerRef.current = null;
-        }
-        pendingChallengeResolveRef.current?.(maybeChallenge);
-        pendingChallengeResolveRef.current = null;
-        pendingChallengeRejectRef.current = null;
-      } else {
+      if (!maybeChallenge) {
         if (pendingChallengeTimerRef.current) {
           window.clearTimeout(pendingChallengeTimerRef.current);
           pendingChallengeTimerRef.current = null;
@@ -416,48 +523,79 @@ export default function BackendTest(): JSX.Element {
         pendingChallengeRejectRef.current?.(new Error("Invalid challenge payload"));
         pendingChallengeResolveRef.current = null;
         pendingChallengeRejectRef.current = null;
+        return;
       }
+
+      setChallenge(maybeChallenge);
+      log("Challenge received:", maybeChallenge);
+
+      if (pendingChallengeTimerRef.current) {
+        window.clearTimeout(pendingChallengeTimerRef.current);
+        pendingChallengeTimerRef.current = null;
+      }
+      pendingChallengeResolveRef.current?.(maybeChallenge);
+      pendingChallengeResolveRef.current = null;
+      pendingChallengeRejectRef.current = null;
     };
 
-    requestChallenge().catch((err: unknown) => {
-      const message =
-        err instanceof Error ? err.message : "Initial challenge failed";
-      log("Initial challenge error:", message);
-      setStatus("err", "Initial challenge failed");
+    void requestChallenge().catch((err: unknown) => {
+      const text = err instanceof Error ? err.message : "Initial challenge failed";
+      log("Initial challenge error:", text);
+      setStatus("err", text);
     });
 
     return () => {
       clearPendingChallenge();
-      delete window.__belugaChallengeCallback;
+      removeChallengeScript();
+      delete window[CHALLENGE_CALLBACK_NAME];
     };
-  }, [clearPendingChallenge, log, requestChallenge]);
+  }, [clearPendingChallenge, log, removeChallengeScript, requestChallenge, setStatus]);
 
-  const handleFrameLoad = async (): Promise<void> => {
-    if (!initialFrameLoadPassedRef.current) {
-      initialFrameLoadPassedRef.current = true;
-      return;
-    }
+  useEffect(() => {
+    const handleMessage = (event: MessageEvent<BackendMessage>) => {
+      const allowedOrigins = [new URL(APPS_SCRIPT_URL).origin, window.location.origin];
+      if (!allowedOrigins.includes(event.origin)) {
+        return;
+      }
 
-    if (!isSubmitting) {
-      return;
-    }
+      const data = event.data;
+      if (!data || data.source !== "beluga-app-script-form") {
+        return;
+      }
 
-    setIsSubmitting(false);
-    setStatus("ok", "Form submitted. Check Google Form and Apps Script logs.");
-    log("Iframe load completed after submit.");
+      if (submitTimeoutRef.current) {
+        window.clearTimeout(submitTimeoutRef.current);
+        submitTimeoutRef.current = null;
+      }
 
-    resetSubmissionState();
-    setChallenge(null);
+      setIsSubmitting(false);
+      log("Backend response:", data);
 
-    try {
-      await requestChallenge();
-    } catch (err) {
-      const message =
-        err instanceof Error ? err.message : "Challenge refresh failed";
-      log("Challenge refresh error:", message);
-      setStatus("err", "Challenge refresh failed");
-    }
-  };
+      if (data.ok) {
+        setStatus("ok", data.message || "Form submitted successfully");
+        resetSubmissionState();
+      } else {
+        setStatus("err", data.message || "Submission rejected");
+      }
+
+      setChallenge(null);
+      void requestChallenge().catch((err: unknown) => {
+        const text = err instanceof Error ? err.message : "Challenge refresh failed";
+        log("Challenge refresh error:", text);
+      });
+    };
+
+    window.addEventListener("message", handleMessage);
+    return () => window.removeEventListener("message", handleMessage);
+  }, [log, requestChallenge, resetSubmissionState, setStatus]);
+
+  useEffect(() => {
+    return () => {
+      if (submitTimeoutRef.current) {
+        window.clearTimeout(submitTimeoutRef.current);
+      }
+    };
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>): Promise<void> => {
     e.preventDefault();
@@ -468,7 +606,6 @@ export default function BackendTest(): JSX.Element {
 
     try {
       validateClient();
-
       setStatus("info", "Verifying...");
       setIsSubmitting(true);
 
@@ -486,15 +623,13 @@ export default function BackendTest(): JSX.Element {
       );
       log("Form seal:", currentFormSeal);
 
-      fillHiddenFields(pow, currentFormFingerprint, currentFormSeal, currentChallenge);
+      await fillHiddenFields(currentChallenge, pow, currentFormFingerprint, currentFormSeal);
 
-      log("Submitting form to backend:", {
-        action: APPS_SCRIPT_URL,
-        hearAbout,
-        otherText,
-      });
+      submitTimeoutRef.current = window.setTimeout(() => {
+        setIsSubmitting(false);
+        setStatus("err", "Backend response timeout");
+      }, 30000);
 
-      await new Promise((resolve) => setTimeout(resolve, 0));
       formRef.current?.submit();
     } catch (err) {
       const text = err instanceof Error ? err.message : "Submit failed";
@@ -590,7 +725,6 @@ export default function BackendTest(): JSX.Element {
                     value={option}
                     checked={hearAbout === option}
                     onChange={(e) => setHearAbout(e.target.value)}
-                    required={!hearAbout}
                   />{" "}
                   {option === "Referral/Word of Mouth"
                     ? "Referral"
@@ -675,21 +809,23 @@ export default function BackendTest(): JSX.Element {
             </label>
           </div>
 
-          <input name="loadTimestamp" type="hidden" value={String(loadTimestamp)} readOnly />
-          <input name="submittedAt" type="hidden" value={submittedAt} readOnly />
-          <input name="challengeToken" type="hidden" value={challengeToken} readOnly />
-          <input name="challengeTs" type="hidden" value={challengeTs} readOnly />
-          <input name="powNonce" type="hidden" value={powNonce} readOnly />
-          <input name="powHash" type="hidden" value={powHash} readOnly />
-          <input name="uaHash" type="hidden" value={uaHash} readOnly />
-          <input name="formFingerprint" type="hidden" value={formFingerprint} readOnly />
-          <input name="formSeal" type="hidden" value={formSeal} readOnly />
-          <input name="userAgent" type="hidden" value={userAgent} readOnly />
-          <input name="language" type="hidden" value={language} readOnly />
-          <input name="screen" type="hidden" value={screenValue} readOnly />
-          <input name="timezone" type="hidden" value={timezone} readOnly />
-          <input name="tzOffset" type="hidden" value={tzOffset} readOnly />
-          <input name="page" type="hidden" value={page} readOnly />
+          <input ref={(el) => { hiddenRefs.current.loadTimestamp = el; }} name="loadTimestamp" type="hidden" defaultValue={String(loadTimestamp)} />
+          <input ref={(el) => { hiddenRefs.current.submittedAt = el; }} name="submittedAt" type="hidden" defaultValue="" />
+          <input ref={(el) => { hiddenRefs.current.challengeToken = el; }} name="challengeToken" type="hidden" defaultValue="" />
+          <input ref={(el) => { hiddenRefs.current.challengeTs = el; }} name="challengeTs" type="hidden" defaultValue="" />
+          <input ref={(el) => { hiddenRefs.current.powNonce = el; }} name="powNonce" type="hidden" defaultValue="" />
+          <input ref={(el) => { hiddenRefs.current.powHash = el; }} name="powHash" type="hidden" defaultValue="" />
+          <input ref={(el) => { hiddenRefs.current.uaHash = el; }} name="uaHash" type="hidden" defaultValue="" />
+          <input ref={(el) => { hiddenRefs.current.formFingerprint = el; }} name="formFingerprint" type="hidden" defaultValue="" />
+          <input ref={(el) => { hiddenRefs.current.formSeal = el; }} name="formSeal" type="hidden" defaultValue="" />
+          <input ref={(el) => { hiddenRefs.current.userAgent = el; }} name="userAgent" type="hidden" defaultValue="" />
+          <input ref={(el) => { hiddenRefs.current.language = el; }} name="language" type="hidden" defaultValue="" />
+          <input ref={(el) => { hiddenRefs.current.screen = el; }} name="screen" type="hidden" defaultValue="" />
+          <input ref={(el) => { hiddenRefs.current.timezone = el; }} name="timezone" type="hidden" defaultValue="" />
+          <input ref={(el) => { hiddenRefs.current.tzOffset = el; }} name="tzOffset" type="hidden" defaultValue="" />
+          <input ref={(el) => { hiddenRefs.current.page = el; }} name="page" type="hidden" defaultValue="" />
+          <input ref={(el) => { hiddenRefs.current.origin = el; }} name="origin" type="hidden" defaultValue="" />
+          <input ref={(el) => { hiddenRefs.current.recaptchaToken = el; }} name="recaptchaToken" type="hidden" defaultValue="" />
 
           <button type="submit" disabled={isSubmitting} style={styles.button}>
             {isSubmitting ? "Verifying..." : "Submit"}
@@ -704,9 +840,6 @@ export default function BackendTest(): JSX.Element {
           name="submitFrame"
           title="hidden submit frame"
           style={styles.iframe}
-          onLoad={() => {
-            void handleFrameLoad();
-          }}
         />
 
         <div style={styles.debug}>{debugLines.join("\n")}</div>
