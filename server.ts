@@ -339,22 +339,41 @@ async function fetchAndSanitizeGoogleDoc(url: string) {
   }
 }
 
-function injectMetaTags(html: string, data: { title: string, description: string, image?: string }) {
+function injectMetaTags(html: string, data: { title: string, description: string, keywords?: string, image?: string, url: string }) {
   const $ = cheerio.load(html);
   
   // Remove existing meta tags that we want to replace
   $('title').remove();
   $('meta[name="description"]').remove();
+  $('meta[name="keywords"]').remove();
+  $('meta[name="robots"]').remove();
+  $('link[rel="canonical"]').remove();
   $('meta[property^="og:"]').remove();
+  $('meta[name^="twitter:"]').remove();
+  
+  const fullTitle = `${data.title} | Beluga Blog`;
   
   // Add new meta tags
   $('head').prepend(`
-    <title>${escapeHtml(data.title)} | Beluga Blog</title>
+    <title>${escapeHtml(fullTitle)}</title>
     <meta name="description" content="${escapeHtml(data.description)}">
-    <meta property="og:title" content="${escapeHtml(data.title)}">
+    ${data.keywords ? `<meta name="keywords" content="${escapeHtml(data.keywords)}">` : ''}
+    <meta name="robots" content="index, follow">
+    <link rel="canonical" href="${escapeHtml(data.url)}">
+    
+    <!-- Open Graph / Facebook -->
+    <meta property="og:type" content="article">
+    <meta property="og:url" content="${escapeHtml(data.url)}">
+    <meta property="og:title" content="${escapeHtml(fullTitle)}">
     <meta property="og:description" content="${escapeHtml(data.description)}">
     ${data.image ? `<meta property="og:image" content="${escapeHtml(data.image)}">` : ''}
-    <meta property="og:type" content="article">
+
+    <!-- Twitter -->
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:url" content="${escapeHtml(data.url)}">
+    <meta name="twitter:title" content="${escapeHtml(fullTitle)}">
+    <meta name="twitter:description" content="${escapeHtml(data.description)}">
+    ${data.image ? `<meta name="twitter:image" content="${escapeHtml(data.image)}">` : ''}
   `);
   
   return $.html();
@@ -399,10 +418,12 @@ async function getBlogPost(slug: string) {
     const responseData = {
       title: entry.data.title,
       description: entry.data.description || entry.data.excerpt,
+      keywords: entry.data.keywords,
       content: contentHtml,
       author: entry.data.author,
       date: entry.data.date,
-      image: entry.data.image
+      image: entry.data.image,
+      slug: entry.data.slug
     };
 
     // Store in cache
@@ -532,7 +553,8 @@ async function startServer() {
       const pages = await builder.getAll('page', {
         options: { 
           noTargeting: true,
-          includeRefs: false
+          includeRefs: false,
+          noCache: true
         },
       });
 
@@ -570,7 +592,8 @@ async function startServer() {
       const blogPosts = await builder.getAll('blog', {
         options: {
           noTargeting: true,
-          includeRefs: false
+          includeRefs: false,
+          noCache: true
         }
       });
 
@@ -610,11 +633,16 @@ async function startServer() {
     }
 
     try {
+      const baseUrl = getBaseUrl();
+      const fullUrl = `${baseUrl}/blog/${slug}`;
+      
       let html = await renderAppHtml(req.originalUrl, req);
       html = injectMetaTags(html, {
         title: post.title,
         description: post.description,
-        image: post.image
+        keywords: post.keywords,
+        image: post.image,
+        url: fullUrl
       });
 
       res.status(200).set({ "Content-Type": "text/html" }).end(html);

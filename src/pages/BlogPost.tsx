@@ -1,23 +1,25 @@
-import React, { useEffect, useState } from 'react';
+import * as React from 'react';
 import { useParams } from 'react-router-dom';
-import { motion } from 'motion/react';
+import { motion } from 'framer-motion';
 
 interface BlogPostData {
   title: string;
   description: string;
+  keywords?: string;
   content: string;
   author: string;
   date: string;
   image?: string;
+  slug: string;
 }
 
 const BlogPost: React.FC = () => {
   const { slug } = useParams<{ slug: string }>();
-  const [post, setPost] = useState<BlogPostData | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [post, setPost] = React.useState<BlogPostData | null>(null);
+  const [loading, setLoading] = React.useState(true);
+  const [error, setError] = React.useState<string | null>(null);
 
-  useEffect(() => {
+  React.useEffect(() => {
     async function fetchPost() {
       try {
         const response = await fetch(`/api/blog/${slug}`);

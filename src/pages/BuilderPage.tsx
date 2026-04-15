@@ -1,14 +1,14 @@
-import React, { useEffect, useState } from 'react';
+import * as React from 'react';
 import { BuilderComponent, builder } from '@builder.io/react';
 
 // Initialize Builder with the API Key
 builder.init('f450ca45929045f782ca4fdfb394abb9');
 
 const BuilderPage: React.FC = () => {
-  const [content, setContent] = useState<unknown>(null);
-  const [loading, setLoading] = useState(true);
+  const [content, setContent] = React.useState<unknown>(null);
+  const [loading, setLoading] = React.useState(true);
 
-  useEffect(() => {
+  React.useEffect(() => {
     async function fetchContent() {
       const urlPath = window.location.pathname || '/';
       const page = await builder.get('page', {
