@@ -45,7 +45,7 @@ type BackendMessage = {
 };
 
 const APPS_SCRIPT_URL =
-  "https://script.google.com/macros/s/AKfycbzViR2BMtubvPV8slAJz9E5rLjOyJz8_iKB19wFJhCrMIcRYfMsHVLT4APferiKu4mX/exec";
+  "https://script.google.com/macros/s/AKfycbzVisTqPz3PFf84Cbdz42rcaAPG7An9WlimR57dAIS6NJX7GvipXOvLpk5HUW420jGm/exec";
 
 const RECAPTCHA_SITE_KEY = "6LcvwrgsAAAAABZ663yUOiMEB6bqyAD4KYQOBrb4";
 const RECAPTCHA_ACTION = "submit_contact_form";
