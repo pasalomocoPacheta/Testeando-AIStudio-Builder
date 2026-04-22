@@ -192,12 +192,31 @@ const RecentPosts: React.FC<RecentPostsProps> = ({
   }
 
   if (posts.length === 0) {
+    // If no posts are found, we check if we are in the Builder editor
+    const isEditing = typeof window !== 'undefined' && 
+                     (window.location.search.includes('builder.isEditing=true') || 
+                      window.location.hostname.includes('builder.io') ||
+                      window.location.hostname.includes('localhost'));
+    
     return (
       <div 
-        className="w-full py-16 text-center opacity-50"
+        className="w-full py-16 text-center"
         style={{ backgroundColor, color: textColor }}
       >
-        <p>No se encontraron artículos recientes.</p>
+        <div className="container mx-auto px-6 opacity-60">
+          <p className="text-xl mb-4">No se encontraron artículos recientes en el modelo "{posts.length === 0 && !loading ? 'blog' : '...' }".</p>
+          {isEditing && (
+            <div className="mt-8 p-6 border border-dashed rounded-xl max-w-2xl mx-auto bg-white/5">
+              <h4 className="font-bold mb-2">Consejos para el editor:</h4>
+              <ul className="text-left text-sm space-y-2 list-disc list-inside">
+                <li>Asegúrate de que tus posts tengan el estado "Published".</li>
+                <li>Verifica que el modelo se llame exactamente <strong>"blog"</strong>.</li>
+                <li>Comprueba que los campos <strong>"title"</strong> y <strong>"slug"</strong> estén rellenos.</li>
+                <li>Si usas un modelo diferente, actualiza el código del componente.</li>
+              </ul>
+            </div>
+          )}
+        </div>
       </div>
     );
   }

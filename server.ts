@@ -391,16 +391,52 @@ async function getBlogPost(slug: string) {
   }
 
   try {
-    // Fetch from Builder.io
+    console.log(`fetching blog post for slug: ${slug}`);
+    // Fetch from Builder.io - try multiple ways to match the slug
+    // 1. Exact match on slug
+    // 2. Exact match on url
+    // 3. Match with leading slash
     const entry = await builder.get('blog', {
       query: {
-        'data.slug': slug
+        $or: [
+          { 'data.slug': slug },
+          { 'data.slug': `/${slug}` },
+          { 'data.url': slug },
+          { 'data.url': `/${slug}` },
+          { 'name': slug }
+        ]
       }
     }).toPromise();
 
-    if (!entry) return null;
+    if (!entry) {
+      console.log(`No blog post entry found in 'blog' model for slug: ${slug}. Trying 'post' model...`);
+      entry = await builder.get('post', {
+        query: {
+          $or: [
+            { 'data.slug': slug },
+            { 'data.slug': `/${slug}` },
+            { 'data.url': slug },
+            { 'data.url': `/${slug}` },
+            { 'name': slug }
+          ]
+        }
+      }).toPromise();
+    }
 
-    let contentHtml = entry.data.content || "";
+    if (!entry) {
+      console.log(`No blog post entry found for slug: ${slug} in any model`);
+      return null;
+    }
+
+    console.log(`Found blog post entry: ${entry.name}`);
+    console.log(`Entry data keys: ${Object.keys(entry.data || {}).join(', ')}`);
+    console.log(`Entry data: ${JSON.stringify(entry.data).substring(0, 500)}...`);
+
+    let contentHtml = entry.data.content || entry.data.body || "";
+    if (typeof contentHtml !== 'string') {
+      console.log('Content is not a string, stringifying...');
+      contentHtml = JSON.stringify(contentHtml);
+    }
     
     // If docId exists, fetch from Google Docs
     if (entry.data.docId) {
@@ -416,14 +452,14 @@ async function getBlogPost(slug: string) {
     }
 
     const responseData = {
-      title: entry.data.title,
-      description: entry.data.description || entry.data.excerpt,
-      keywords: entry.data.keywords,
+      title: entry.data.title || entry.name || 'Untitled Post',
+      description: entry.data.description || entry.data.excerpt || '',
+      keywords: entry.data.keywords || '',
       content: contentHtml,
-      author: entry.data.author,
-      date: entry.data.date,
-      image: entry.data.image,
-      slug: entry.data.slug
+      author: entry.data.author || 'Beluga Team',
+      date: entry.data.date || entry.createdDate || new Date().toISOString(),
+      image: entry.data.image || entry.data.featuredImage || entry.data.thumbnail || '',
+      slug: entry.data.slug || slug
     };
 
     // Store in cache
@@ -589,7 +625,7 @@ async function startServer() {
   // Posts Sitemap
   app.get("/sitemap-posts.xml", async (req, res) => {
     try {
-      const blogPosts = await builder.getAll('blog', {
+      let blogPosts = await builder.getAll('blog', {
         options: {
           noTargeting: true,
           includeRefs: false,
@@ -597,17 +633,30 @@ async function startServer() {
         }
       });
 
+      if (!blogPosts || blogPosts.length === 0) {
+        console.log("No posts found in 'blog' model for sitemap, trying 'post' model...");
+        blogPosts = await builder.getAll('post', {
+          options: {
+            noTargeting: true,
+            includeRefs: false,
+            noCache: true
+          }
+        });
+      }
+
       const baseUrl = getBaseUrl();
       
       const sitemap = `<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   ${blogPosts.map((post: any) => {
-    const slug = post.data?.slug;
+    const slug = post.data?.slug || post.data?.url || post.name;
     if (!slug) return '';
+    // Clean slug if it has leading slash
+    const cleanSlug = slug.startsWith('/') ? slug.substring(1) : slug;
     const lastMod = post.lastUpdated ? new Date(post.lastUpdated).toISOString().split('T')[0] : new Date().toISOString().split('T')[0];
     return `
   <url>
-    <loc>${baseUrl}/blog/${slug}</loc>
+    <loc>${baseUrl}/blog/${cleanSlug}</loc>
     <lastmod>${lastMod}</lastmod>
     <changefreq>daily</changefreq>
     <priority>0.7</priority>
