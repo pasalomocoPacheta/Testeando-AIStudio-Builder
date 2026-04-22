@@ -3,7 +3,6 @@ import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import Layout from './components/Layout';
 import BuilderPage from './pages/BuilderPage';
 import BlogPost from './pages/BlogPost';
-import BackendTest from './pages/BackendTest';
 import ThemeTest from './components/ThemeTest';
 import CookieConsent from './components/CookieConsent';
 
@@ -14,9 +13,6 @@ function App() {
         <Routes>
           {/* Theme test route */}
           <Route path="/test-theme" element={<ThemeTest />} />
-          
-          {/* Backend test route */}
-          <Route path="/test-backend" element={<BackendTest />} />
           
           {/* Blog posts route */}
           <Route path="/blog/:slug" element={<BlogPost />} />
